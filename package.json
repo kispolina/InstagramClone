@@ -1,0 +1,24 @@
+{
+  "name": "instagram-signup-mockups",
+  "version": "1.0.0",
+  "private": true,
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "web": "expo start --web",
+    "ios": "expo start --ios",
+    "android": "expo start --android",
+    "test": "node --test validation.test.js"
+  },
+  "dependencies": {
+    "expo": "~54.0.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-dom": "19.1.0",
+    "react-native-web": "^0.21.0",
+    "expo-image-picker": "~17.0.0",
+    "@expo/vector-icons": "^15.0.0",
+    "react-native-safe-area-context": "~5.6.0",
+    "firebase": "^12.0.0"
+  }
+}
