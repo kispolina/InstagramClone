@@ -1,65 +1,370 @@
 import React, {useState, useRef} from 'react';
 import {View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Image, StatusBar} from 'react-native';
 import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
-import {Ionicons, FontAwesome5} from '@expo/vector-icons';
+import {Ionicons} from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import {validEmail, validBirthday} from './validation';
-import {loginWithEmail, registerWithEmail, resetPassword, logout, saveProfile, loadMyProfile, sendVerificationEmail, uploadAvatarBlob} from './services/backend';
-import {getBackend} from './services/firebase';
-import {reload} from 'firebase/auth';
+import {validEmail, validBirthday, formatBirthdayInput} from './validation';
 
-const topics=['Animals & pets','Birds','Cats','Dogs','Horses','Food & drink','Baking','Cooking','Sport','American football','Baseball','Basketball','Fishing','Football','Tennis','Volleyball','Winter sports','Books & literature','Travel','Camping & backpacking','Outdoor & adventure travel','Road trips','Science & engineering','Computer science','Investing & trading','Technology','Crafts','Dance','Drawing','Photography','Music','Style'];
-const nextStep={phone:'code',email:'birthday',code:'birthday',birthday:'password',password:'name',name:'username',username:'photo',photo:'contacts',contacts:'interests',interests:'done'};
-export default function App(){return <SafeAreaProvider><Flow/></SafeAreaProvider>}
-function Flow(){
- const [step,setStep]=useState('login'),[history,setHistory]=useState([]),[data,setData]=useState({}),[error,setError]=useState(''),[selected,setSelected]=useState([]),[photo,setPhoto]=useState(null),[notice,setNotice]=useState('');
- const [busy,setBusy]=useState(false),[verified,setVerified]=useState(false);
- const lock=useRef(false);
- const run=async action=>{if(lock.current)return;lock.current=true;setBusy(true);setError('');setNotice('');try{await action()}catch(e){const messages={'auth/invalid-credential':'Incorrect email or password.','auth/email-already-in-use':'This email is already registered. Log in or reset your password.','auth/weak-password':'Choose a stronger password.','auth/network-request-failed':'Connection failed. Try again.','auth/too-many-requests':'Too many attempts. Try later.','auth/operation-not-allowed':'Enable Email/Password in Firebase Authentication.','permission-denied':'Check your Firestore rules.','storage/unauthorized':'Check your Storage rules.'};setError(messages[e.code]||e.message||'Request failed. Try again.')}finally{lock.current=false;setBusy(false)}};
- const handleLogin=()=>run(async()=>{if(!validEmail(data.loginId||'')||!data.loginPassword)throw new Error('Enter your email and password.');const user=await loginWithEmail(data.loginId,data.loginPassword);setData(d=>({...d,password:'',loginPassword:''}));await reload(user);setVerified(user.emailVerified);const profile=await loadMyProfile();if(profile){setData(d=>({...d,...profile}));setSelected(profile.interests||[]);setPhoto(profile.photoURL||null);go('done')}else{setData(d=>({...d,email:user.email}));go('name');setNotice('Complete your profile to finish registration.')}});
- const finish=()=>run(async()=>{await saveProfile({name:data.name,username:data.username,interests:selected});setVerified(getBackend().auth.currentUser.emailVerified);go('done')});
- const handleLogout=()=>run(async()=>{await logout();setData({});setSelected([]);setPhoto(null);setVerified(false);login()});
- const update=(key,value)=>{setData(d=>({...d,[key]:value}));setError('')};
- const go=s=>{setHistory(h=>[...h,step]);setStep(s);setError('');setNotice('')};
- const back=()=>{if(busy||step==='done'||(step==='name'&&!history.length))return;setStep(history[history.length-1]||'login');setHistory(h=>h.slice(0,-1));setError('');setNotice('')};
- const login=()=>{setStep('login');setHistory([]);setError('');setNotice('')};
- const advance=()=>{
-  let message='';
-  if(step==='phone') message='SMS signup is not configured. Choose email signup.';
-  if(step==='email'&&!validEmail(data.email||'')) message='Enter a valid email address.';
-  if(step==='code') message='Use the verification link sent to your email.';
-  if(step==='birthday'&&!validBirthday(data.birthday||'')) message='Use YYYY-MM-DD. You must be at least 13 years old.';
-  if(step==='password'&&(data.password||'').length<6) message='Use at least 6 characters.';
-  if(step==='name'&&!(data.name||'').trim()) message='Enter your full name.';
-  if(step==='username'&&!/^[a-zA-Z0-9._]{3,30}$/.test(data.username||'')) message='Use 3–30 letters, numbers, periods or underscores.';
-  if(message){setError(message);return}
-  if(step==='password'){run(async()=>{await registerWithEmail(data.email,data.password);setData(d=>({...d,password:''}));go('name');setHistory([]);try{await sendVerificationEmail();setNotice('Verification link sent to your email.')}catch{setNotice('Account created. You can resend the verification email after completing your profile.')}});return}
-  if(step==='interests'){finish();return}
-  go(nextStep[step]);
- };
- const pick=async()=>{try{const result=await ImagePicker.launchImageLibraryAsync({mediaTypes:['images'],allowsEditing:true,aspect:[1,1],quality:0.7});if(!result.canceled){setPhoto(result.assets[0].uri);}}catch{setError('Could not open the photo library. Try again.')}};
- const field=(key,placeholder,extra={})=><TextInput accessibilityLabel={placeholder} editable={!busy} style={s.input} placeholderTextColor="#737780" placeholder={placeholder} value={data[key]||''} onChangeText={v=>update(key,v)} autoCapitalize="none" {...extra}/>;
- const button=(label,action,outline=false)=><TouchableOpacity disabled={busy} accessibilityState={{disabled:busy,busy}} accessibilityRole="button" onPress={action} style={[s.button,outline&&s.outline]}><Text style={[s.buttonText,outline&&s.outlineText]}>{busy?'Please wait…':label}</Text></TouchableOpacity>;
- const heading=(title,body)=><><Text style={s.heading}>{title}</Text>{body&&<Text style={s.body}>{body}</Text>}</>;
- const account=<TouchableOpacity disabled={busy} onPress={login} style={s.account}><Text style={s.accountText}>I already have an account</Text></TouchableOpacity>;
- return <SafeAreaView style={s.safe}><StatusBar barStyle="dark-content"/><KeyboardAvoidingView style={s.shell} behavior={Platform.OS==='ios'?'padding':undefined}>
- <View pointerEvents={busy?'none':'auto'} style={s.top}><TouchableOpacity accessibilityLabel="Go back" onPress={back}><Ionicons name="chevron-back" size={25}/></TouchableOpacity>{step==='interests'&&<TouchableOpacity disabled={busy} onPress={finish}><Text>Skip</Text></TouchableOpacity>}</View>
- <ScrollView scrollEnabled={!busy} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
- {step==='login'&&<><View style={s.logo}><Ionicons name="logo-instagram" size={62} color="#dc207a"/></View><View style={s.loginFields}>{field('loginId','Email address')}{field('loginPassword','Password',{secureTextEntry:true})}{button('Log in',handleLogin)}<TouchableOpacity disabled={busy} onPress={()=>go('reset')} style={s.textButton}><Text>Forgotten Password?</Text></TouchableOpacity></View><View style={s.bottom}>{button('Create new account',()=>go('email'),true)}<Text style={s.meta}>∞ Meta</Text></View></>}
- {step==='reset'&&<>{heading('Find your account','Enter your email address to request a password reset.')}{field('resetEmail','Email address',{keyboardType:'email-address'})}{button('Send reset link',()=>run(async()=>{if(!validEmail(data.resetEmail||''))throw new Error('Enter a valid email address.');await resetPassword(data.resetEmail);setNotice('If an account exists, a reset link will be sent. Check your inbox.');}))}</>}
- {step==='phone'&&<>{heading("What's your mobile number?",'Enter the mobile number on which you can be contacted. No one will see this on your profile.')}{field('phone','Mobile number',{keyboardType:'phone-pad',textContentType:'telephoneNumber'})}<Text style={s.hint}>SMS signup is not configured. Please sign up with email.</Text>{button('Next',advance)}{button('Sign up with email address',()=>go('email'),true)}</>}
- {step==='email'&&<>{heading("What's your email address?",'Enter the email address at which you can be contacted. No one will see this on your profile.')}{field('email','Email address',{keyboardType:'email-address',textContentType:'emailAddress'})}{button('Next',advance)}{button('Sign up with Mobile Number',()=>go('phone'),true)}</>}
- {step==='code'&&<>{heading('Enter the confirmation code','Confirm your email using the link in your inbox.')}{field('code','Confirmation code',{keyboardType:'number-pad',maxLength:6,textContentType:'oneTimeCode'})}{button('Next',advance)}{button("I didn't receive the code",()=>setNotice('Use the verification link in your inbox.'),true)}</>}
- {step==='birthday'&&<>{heading("What's your date of birth?",'Use your own date of birth, even if this account is for a business, a pet or something else. No one will see this unless you choose to share it.')}<TouchableOpacity onPress={()=>setNotice('Your date of birth helps provide age-appropriate experiences. You must be at least 13 years old.')}><Text style={s.link}>Why do I need to provide my date of birth?</Text></TouchableOpacity>{field('birthday','Date of birth (YYYY-MM-DD)',{keyboardType:'numbers-and-punctuation',maxLength:10})}{button('Next',advance)}</>}
- {step==='password'&&<>{heading('Create a password',"Create a password with at least 6 letters or numbers. It should be something others can't guess.")}{field('password','Password',{secureTextEntry:true,textContentType:'newPassword'})}{button('Next',advance)}</>}
- {step==='name'&&<>{heading("What's your name?",'Add your name so that friends can find you.')}{field('name','Full name',{autoCapitalize:'words',textContentType:'name'})}{button('Next',advance)}</>}
- {step==='username'&&<>{heading('Create a username','Add a username or use our suggestion. You can change this at any time.')}{field('username','Username',{autoCorrect:false})}{button('Next',advance)}</>}
- {step==='photo'&&<>{heading('Add a profile picture',"Add a profile picture so that your friends know it's you. Choose a picture for your profile.")}<View style={s.avatarWrap}>{photo?<Image source={{uri:photo}} style={s.avatar}/>:<Ionicons name="person-circle" size={160} color="#d0d3dc"/>}</View><View style={s.bottom}>{button(photo?'Upload & continue':'Add picture',photo?()=>run(async()=>{if(Platform.OS!=='web')throw new Error('Native photo upload is not configured. Use Skip or upload in the web app.');const response=await fetch(photo);const blob=await response.blob();await uploadAvatarBlob(blob);go('contacts')}):pick)}{photo&&button('Change picture',pick,true)}{button('Skip',advance,true)}</View></>}
- {step==='contacts'&&<>{heading('Find your friends faster by syncing your contacts')}<View style={s.contactRow}><Ionicons name="people-outline" size={26}/><Text style={s.contactText}>Sync all contacts or select contacts to sync. You can still choose who to follow.</Text></View><View style={s.contactRow}><Ionicons name="settings-outline" size={26}/><Text style={s.contactText}>You can remove stored contacts or turn off syncing at any time.</Text></View><View style={s.bottom}><Text style={s.hint}>Demo: no contacts are accessed or uploaded.</Text>{button('Next',advance)}</View></>}
- {step==='interests'&&<>{heading('See more of what you love',"You can choose the topics that you're interested in to see more content that's right for you.")}<View style={s.tags}>{topics.map(topic=><TouchableOpacity accessibilityRole="button" accessibilityState={{selected:selected.includes(topic)}} key={topic} style={[s.tag,selected.includes(topic)&&s.selected]} onPress={()=>setSelected(a=>a.includes(topic)?a.filter(t=>t!==topic):[...a,topic])}><Text style={[s.tagText,selected.includes(topic)&&s.selectedText]}>{topic}</Text></TouchableOpacity>)}</View>{button('Next',advance)}</>}
- {step==='done'&&<>{heading('You’re all set!',`Welcome, ${data.name||'friend'}. Your profile is saved.`)}{photo&&<Image source={{uri:photo}} style={[s.avatar,{alignSelf:'center',marginVertical:24}]}/>}<Text style={s.body}>@{data.username}{'\n'}{selected.length?selected.join(' · '):'No interests selected'}</Text><Text style={s.hint}>{verified?'Email verified.':'Check your inbox to verify your email address.'}</Text>{!verified&&<>{button('Resend verification email',()=>run(async()=>{await sendVerificationEmail();setNotice('Verification link sent.')}),true)}{button('I verified my email',()=>run(async()=>{const user=getBackend().auth.currentUser;await reload(user);setVerified(user.emailVerified);if(!user.emailVerified)setNotice('Email is not verified yet. Open the latest link and try again.')}),true)}</>}{button('Log out',handleLogout)}</>}
- {!!error&&<Text accessibilityRole="alert" style={s.error}>{error}</Text>}{!!notice&&<Text accessibilityLiveRegion="polite" style={s.notice}>{notice}</Text>}
- {!['login','reset','name','code','birthday','photo','contacts','interests','done'].includes(step)&&account}
- </ScrollView><Text style={s.demo}>Not affiliated with Instagram</Text></KeyboardAvoidingView></SafeAreaView>;
+
+
+const topics = ['Тварини', 'Птахи', 'Коти', 'Собаки', 'Коні', 'Їжа та напої', 'Випічка', 'Кулінарія', 'Спорт', 'Американський футбол', 'Бейсбол', 'Баскетбол', 'Риболовля', 'Футбол', 'Теніс', 'Волейбол', 'Зимові види спорту', 'Книги та література', 'Подорожі', 'Кемпінг і походи', 'Активний відпочинок', 'Автомандрівки', 'Наука та інженерія', 'Комп’ютерні науки', 'Інвестиції та трейдинг', 'Технології', 'Рукоділля', 'Танці', 'Малювання', 'Фотографія', 'Музика', 'Стиль'];
+const nextStep = {phone: 'code', email: 'birthday', code: 'birthday', birthday: 'password', password: 'name', name: 'username', username: 'photo', photo: 'contacts', contacts: 'interests', interests: 'done'};
+const errorMessages = {
+  'auth/invalid-credential': 'Неправильна пошта або пароль.',
+  'auth/email-already-in-use': 'Ця пошта вже зареєстрована. Увійдіть або відновіть пароль.',
+  'auth/weak-password': 'Оберіть надійніший пароль.',
+  'auth/network-request-failed': 'Немає зʼєднання. Спробуйте ще раз.',
+  'auth/too-many-requests': 'Забагато спроб. Спробуйте пізніше.',
+  'auth/operation-not-allowed': 'Увімкніть Email/Password у Firebase Authentication.',
+  'auth/invalid-email': 'Введіть коректну електронну пошту.',
+  'auth/user-disabled': 'Цей акаунт заблоковано.',
+  'auth/unauthorized-domain': 'Додайте цей домен до Authorized domains у налаштуваннях Firebase Authentication.',
+  'auth/missing-password': 'Введіть пароль.',
+  'permission-denied': 'Перевірте правила Firestore.',
+  'storage/unauthorized': 'Перевірте правила Storage.',
+};
+
+export default function App() {
+  return <SafeAreaProvider><Flow /></SafeAreaProvider>;
 }
-const s=StyleSheet.create({safe:{flex:1,backgroundColor:'#fff'},shell:{flex:1,width:'100%',maxWidth:430,alignSelf:'center'},top:{height:48,paddingHorizontal:18,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},content:{flexGrow:1,paddingHorizontal:22,paddingBottom:18},heading:{fontSize:23,fontWeight:'600',color:'#101114',marginBottom:9,marginTop:8},body:{fontSize:14,lineHeight:20,color:'#17191c',marginBottom:18},input:{height:55,borderWidth:1,borderColor:'#d8dbe0',borderRadius:13,paddingHorizontal:14,fontSize:14,marginBottom:12,color:'#15171b',backgroundColor:'#fcfcfd'},button:{minHeight:43,borderRadius:24,backgroundColor:'#0064e9',alignItems:'center',justifyContent:'center',paddingHorizontal:16,marginBottom:10},buttonText:{fontSize:14,fontWeight:'600',color:'#fff'},outline:{backgroundColor:'#fff',borderWidth:1,borderColor:'#d3d5d8'},outlineText:{color:'#15171b'},hint:{fontSize:12,lineHeight:16,color:'#737780',marginBottom:17},link:{fontSize:13,lineHeight:18,color:'#0058a8',fontWeight:'600',marginBottom:18},account:{marginTop:'auto',paddingTop:55,paddingBottom:12,alignItems:'center'},accountText:{color:'#0058a8',fontSize:12,fontWeight:'600'},logo:{alignItems:'center',marginTop:55,marginBottom:65},loginFields:{width:'100%'},textButton:{alignItems:'center',padding:7},bottom:{marginTop:'auto',paddingTop:35},meta:{textAlign:'center',marginTop:8,color:'#555b65',fontSize:15},avatarWrap:{alignItems:'center',marginTop:12},avatar:{width:150,height:150,borderRadius:75},contactRow:{flexDirection:'row',gap:13,marginTop:22,alignItems:'flex-start'},contactText:{flex:1,fontSize:14,lineHeight:20},tags:{flexDirection:'row',flexWrap:'wrap',justifyContent:'center',gap:8,paddingVertical:15},tag:{backgroundColor:'#f0eff3',borderRadius:7,paddingHorizontal:12,paddingVertical:7},selected:{backgroundColor:'#d7f4ff'},tagText:{fontSize:12,fontWeight:'600'},selectedText:{color:'#009ac7'},error:{color:'#b42318',fontSize:13,lineHeight:19,marginTop:12},notice:{backgroundColor:'#eff6ff',padding:12,borderRadius:10,color:'#14467a',fontSize:13,lineHeight:19,marginTop:12},demo:{fontSize:10,textAlign:'center',color:'#8a8d94',paddingVertical:7}});
+
+function Logo({style}) {
+  return <View style={[s.logo, style]}><Text style={s.logoText}>logo</Text></View>;
+}
+
+function Flow() {
+  const [step, setStep] = useState('login');
+  const [history, setHistory] = useState([]);
+  const [data, setData] = useState({});
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [selected, setSelected] = useState([]);
+  const [photo, setPhoto] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [verified, setVerified] = useState(false);
+  const lock = useRef(false);
+
+  const fakeLogin = async () => ({ email: data.loginId, emailVerified: true });
+  const fakeRegister = async () => ({ email: data.email });
+  const fakeSaveProfile = async profile => profile;
+  const fakeLogout = async () => {};
+  const fakeResetPassword = async () => {};
+  const fakeSendVerificationEmail = async () => {};
+  const fakeUploadAvatarBlob = async () => {};
+
+  const run = async action => {
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(true); setError(''); setNotice('');
+    try { await action(); }
+    catch (e) { setError(e.message || 'Не вдалося виконати запит. Спробуйте ще раз.'); }
+    finally { lock.current = false; setBusy(false); }
+  };
+
+  const go = next => { setHistory(h => [...h, step]); setStep(next); setError(''); setNotice(''); };
+  const login = () => { setStep('login'); setHistory([]); setError(''); setNotice(''); };
+  const back = () => {
+    if (busy || step === 'done' || (step === 'name' && !history.length)) return;
+    setStep(history[history.length - 1] || 'login');
+    setHistory(h => h.slice(0, -1));
+    setError(''); setNotice('');
+  };
+  const canBack = !busy && step !== 'login' && step !== 'done' && !(step === 'name' && !history.length);
+  const update = (key, value) => { setData(d => ({...d, [key]: value})); setError(''); };
+
+  const handleLogin = () => run(async () => {
+    if (!validEmail(data.loginId || '') || !data.loginPassword) throw new Error('Введіть пошту та пароль.');
+    const user = await fakeLogin();
+    setData(d => ({...d, password: '', loginPassword: ''}));
+    setVerified(user.emailVerified);
+    go('done');
+  });
+
+  const finish = (list = selected) => run(async () => {
+    await fakeSaveProfile({name: data.name, username: data.username, interests: list});
+    setVerified(true);
+    go('done');
+  });
+
+  const handleLogout = () => run(async () => {
+    await fakeLogout();
+    setData({}); setSelected([]); setPhoto(null); setVerified(false);
+    login();
+  });
+
+  const sendReset = () => run(async () => {
+    if (!validEmail(data.resetEmail || '')) throw new Error('Введіть коректну електронну пошту.');
+    await fakeResetPassword();
+    setNotice('Демо: посилання для відновлення не надсилається.');
+  });
+
+  const advance = () => {
+    let message = '';
+    if (step === 'email' && !validEmail(data.email || '')) message = 'Введіть коректну електронну пошту.';
+    if (step === 'birthday' && !validBirthday(data.birthday || '')) message = 'Формат РРРР-ММ-ДД. Вам має бути щонайменше 13 років.';
+    if (step === 'password' && (data.password || '').length < 6) message = 'Пароль має містити щонайменше 6 символів.';
+    if (step === 'name' && !(data.name || '').trim()) message = 'Введіть ваше імʼя.';
+    if (step === 'username' && !/^[a-zA-Z0-9._]{3,30}$/.test(data.username || '')) message = 'Від 3 до 30 символів: латинські літери, цифри, крапки або підкреслення.';
+    if (message) { setError(message); return; }
+
+    if (step === 'password') {
+      run(async () => {
+        await fakeRegister();
+        setData(d => ({...d, password: ''}));
+        go('name');
+        setHistory([]);
+        setNotice('Акаунт створено (демо).');
+      });
+      return;
+    }
+    if (step === 'interests') { finish(); return; }
+    go(nextStep[step]);
+  };
+
+  const pick = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.7});
+      if (!result.canceled) setPhoto(result.assets[0].uri);
+    } catch { setError('Не вдалося відкрити галерею. Спробуйте ще раз.'); }
+  };
+
+  const uploadPhoto = () => run(async () => {
+    await fakeUploadAvatarBlob();
+    go('contacts');
+  });
+
+  const field = (key, placeholder, extra = {}) => (
+    <TextInput
+      accessibilityLabel={placeholder}
+      editable={!busy}
+      style={s.input}
+      placeholderTextColor="#000"
+      placeholder={placeholder}
+      value={data[key] || ''}
+      onChangeText={v => update(key, v)}
+      autoCapitalize="none"
+      {...extra}
+    />
+  );
+  const button = (label, action, outline = false) => (
+    <TouchableOpacity disabled={busy} accessibilityState={{disabled: busy, busy}} accessibilityRole="button" onPress={action} style={[s.button, outline && s.outline, busy && s.busy]}>
+      <Text style={[s.buttonText, outline && s.outlineText]}>{busy ? 'Зачекайте…' : label}</Text>
+    </TouchableOpacity>
+  );
+  const heading = (title, body, top = 27) => (
+    <View style={[s.info, {marginTop: top}]}>
+      <Text accessibilityRole="header" style={s.heading}>{title}</Text>
+      {!!body && <Text style={s.body}>{body}</Text>}
+    </View>
+  );
+  const account = (
+    <TouchableOpacity disabled={busy} onPress={login} style={s.account}>
+      <Text style={s.accountText}>У мене вже є акаунт</Text>
+    </TouchableOpacity>
+  );
+  const wide = {style: [s.input, s.inputWide]};
+
+  return (
+    <SafeAreaView style={s.safe}>
+      <StatusBar barStyle="dark-content" />
+      <KeyboardAvoidingView style={s.shell} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        {step !== 'login' && (
+          <View pointerEvents={busy ? 'none' : 'auto'} style={s.top}>
+            {canBack
+              ? <TouchableOpacity accessibilityLabel="Назад" onPress={back} hitSlop={12}><Ionicons name="chevron-back" size={24} color="#000" /></TouchableOpacity>
+              : <View style={{width: 24}} />}
+            {step === 'interests' && <TouchableOpacity disabled={busy} onPress={() => { setSelected([]); finish([]); }}><Text style={s.plain}>Пропустити</Text></TouchableOpacity>}
+          </View>
+        )}
+        <ScrollView scrollEnabled={!busy} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+          {step === 'login' && <>
+            <Logo style={{marginTop: 46}} />
+            <View style={s.loginFields}>
+              {field('loginId', 'Електронна пошта', {keyboardType: 'email-address', textContentType: 'emailAddress', returnKeyType: 'next'})}
+              {field('loginPassword', 'Пароль', {secureTextEntry: true, returnKeyType: 'go', onSubmitEditing: handleLogin})}
+            </View>
+            <View style={s.bottom}>
+              {button('Увійти', handleLogin)}
+              <TouchableOpacity disabled={busy} onPress={() => go('reset')} style={s.forgot}><Text style={s.plain}>Забули пароль?</Text></TouchableOpacity>
+              {button('Створити акаунт', () => go('email'), true)}
+            </View>
+          </>}
+
+          {step === 'reset' && <>
+            {heading('Відновлення пароля', 'Введіть пошту, на яку надіслати посилання для відновлення пароля.', 116)}
+            <View style={s.form}>
+              {field('resetEmail', 'Електронна пошта', {keyboardType: 'email-address', returnKeyType: 'send', onSubmitEditing: sendReset})}
+              {button('Надіслати посилання', sendReset)}
+            </View>
+          </>}
+
+          {step === 'phone' && <>
+            <Logo style={{marginTop: 4}} />
+            {heading('Ваш мобільний номер?', 'Введіть ваш мобільний номер, який є дійсним, ніхто не побачить його в вашому профілі.')}
+            <View style={s.form}>
+              {field('phone', 'Мобільний номер', {keyboardType: 'phone-pad', textContentType: 'telephoneNumber', ...wide})}
+              {button('Далі', advance)}
+              {button('Увійти з поштою', () => go('email'), true)}
+            </View>
+          </>}
+
+          {step === 'email' && <>
+            <Logo style={{marginTop: 4}} />
+            {heading('Ваша пошта?', 'Введіть вашу електронну пошту, яка є дійсною, ніхто не побачить її у вашому профілі.')}
+            <View style={s.form}>
+              {field('email', 'Електронна пошта', {keyboardType: 'email-address', textContentType: 'emailAddress', returnKeyType: 'next', onSubmitEditing: advance, ...wide})}
+              {button('Далі', advance)}
+              {button('Увійти з номером телефону', () => go('phone'), true)}
+            </View>
+          </>}
+
+          {step === 'code' && <>
+            <Logo style={{marginTop: 4}} />
+            {heading('Введіть код', 'Введіть код який надійшов,\nкод активний протягом 2 хвилин')}
+            <View style={s.form}>
+              {field('code', 'Код', {keyboardType: 'number-pad', maxLength: 6, textContentType: 'oneTimeCode', ...wide})}
+              {button('Далі', advance)}
+              {button('Мені не надійшов код', () => setNotice('Скористайтеся посиланням для підтвердження, яке надійшло на пошту.'), true)}
+            </View>
+          </>}
+
+          {step === 'birthday' && <>
+            <Logo style={{marginTop: 4}} />
+            {heading('Введіть вашу дату народження', 'Використовуйте вашу справжню дату народження, ніхто не побачить вашу дату народження')}
+            <View style={s.form}>
+              {field('birthday', 'Дата народження (РРРР-ММ-ДД)', {keyboardType: 'number-pad', maxLength: 10, returnKeyType: 'next', onChangeText: v => update('birthday', formatBirthdayInput(v)), onSubmitEditing: advance})}
+              {button('Далі', advance)}
+            </View>
+          </>}
+
+          {step === 'password' && <>
+            <Logo style={{marginTop: 4}} />
+            {heading('Створіть пароль', 'Створіть пароль для входу в акаунт, нікому не повідомляйте його та збережіть в безпечному місці')}
+            <View style={s.form}>
+              {field('password', 'Пароль', {secureTextEntry: true, textContentType: 'newPassword', returnKeyType: 'next', onSubmitEditing: advance})}
+              {button('Далі', advance)}
+            </View>
+          </>}
+
+          {step === 'name' && <>
+            {heading('Яке ваше ім’я?', 'Введіть ваше ім’я щоб ваші друзі змогли знайти вас', 116)}
+            <View style={s.form}>
+              {field('name', 'Моє ім’я', {autoCapitalize: 'words', textContentType: 'name', returnKeyType: 'next', onSubmitEditing: advance})}
+              {button('Далі', advance)}
+            </View>
+          </>}
+
+          {step === 'username' && <>
+            {heading('Створіть ім’я користувача', 'Ім’я користувача буде відображене в вашому профілі.\nВи можете змінити його будь-коли.', 116)}
+            <View style={s.form}>
+              {field('username', 'Ім’я користувача', {autoCorrect: false, returnKeyType: 'next', onSubmitEditing: advance})}
+              {button('Далі', advance)}
+            </View>
+          </>}
+
+          {step === 'photo' && <>
+            {heading('Додайте картинку профілю', 'Додайте картинку профілю.\nВи можете змінити це будь-коли', 40)}
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Обрати фото профілю" disabled={busy} onPress={pick} style={s.avatarWrap}>
+              {photo
+                ? <Image source={{uri: photo}} style={s.avatarBig} />
+                : <View style={s.avatarBig}><View style={s.avatarHead} /><View style={s.avatarBody} /></View>}
+            </TouchableOpacity>
+            <View style={s.bottom}>
+              {!!photo && button('Змінити фото', pick, true)}
+              {button('Далі', photo ? uploadPhoto : pick)}
+              <TouchableOpacity disabled={busy} onPress={advance} style={s.later}><Text style={s.plain}>Пізніше</Text></TouchableOpacity>
+            </View>
+          </>}
+
+          {step === 'contacts' && <>
+            {heading('Знайдіть друзів швидше, синхронізувавши контакти', undefined, 116)}
+            <View style={s.contactRow}><Ionicons name="people-outline" size={26} /><Text style={s.contactText}>Синхронізуйте всі контакти або виберіть окремі. Ви самі обираєте, на кого підписатися.</Text></View>
+            <View style={s.contactRow}><Ionicons name="settings-outline" size={26} /><Text style={s.contactText}>Збережені контакти можна видалити, а синхронізацію вимкнути в будь-який момент.</Text></View>
+            <View style={s.bottom}>
+              <Text style={s.hint}>Демо: доступу до контактів немає, вони нікуди не передаються.</Text>
+              {button('Далі', advance)}
+            </View>
+          </>}
+
+          {step === 'interests' && <>
+            {heading('Бачте більше того, що любите', 'Оберіть теми, які вас цікавлять, щоб бачити відповідний контент.', 16)}
+            <View style={s.tags}>
+              {topics.map(topic => (
+                <TouchableOpacity accessibilityRole="button" accessibilityState={{selected: selected.includes(topic)}} key={topic} style={[s.tag, selected.includes(topic) && s.selected]} onPress={() => setSelected(a => a.includes(topic) ? a.filter(t => t !== topic) : [...a, topic])}>
+                  <Text style={[s.tagText, selected.includes(topic) && s.selectedText]}>{topic}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {button('Далі', advance)}
+          </>}
+
+          {step === 'done' && <>
+            {heading('Все готово!', `Вітаємо, ${data.name || 'друже'}. Ваш профіль збережено.`, 80)}
+            {!!photo && <Image source={{uri: photo}} style={[s.avatarSmall, {alignSelf: 'center', marginBottom: 24}]} />}
+            <Text style={[s.body, {textAlign: 'center'}]}>@{data.username}{'\n'}{selected.length ? selected.join(' · ') : 'Інтереси не обрано'}</Text>
+            <Text style={[s.hint, {textAlign: 'center'}]}>{verified ? 'Пошту підтверджено.' : 'Перевірте пошту та підтвердьте адресу.'}</Text>
+            <View style={s.form}>
+              {!verified && <>
+                {button('Надіслати лист ще раз', () => run(async () => { await sendVerificationEmail(); setNotice('Посилання для підтвердження надіслано.'); }), true)}
+                {button('Я підтвердив(-ла) пошту', () => run(async () => {
+                  const user = getBackend().auth.currentUser;
+                  await reload(user);
+                  setVerified(user.emailVerified);
+                  if (!user.emailVerified) setNotice('Пошту ще не підтверджено. Відкрийте останній лист і спробуйте ще раз.');
+                }), true)}
+              </>}
+              {button('Вийти', handleLogout)}
+            </View>
+          </>}
+
+          {!!error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
+          {!!notice && <Text accessibilityLiveRegion="polite" style={s.notice}>{notice}</Text>}
+          {['phone', 'email', 'code'].includes(step) && account}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+// Значення взяті з макета Figma (кадри 375×812): відступи, радіуси, кольори, розміри шрифтів.
+const s = StyleSheet.create({
+  safe: {flex: 1, backgroundColor: '#fff'},
+  shell: {flex: 1, width: '100%', maxWidth: 430, alignSelf: 'center'},
+  top: {height: 52, paddingTop: 28, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between'},
+  content: {flexGrow: 1, paddingHorizontal: 20, paddingBottom: 12},
+  logo: {width: 203, height: 85, backgroundColor: '#d9d9d9', alignSelf: 'center', alignItems: 'center', justifyContent: 'center'},
+  logoText: {fontSize: 14, color: '#000'},
+  info: {gap: 21, marginBottom: 32},
+  heading: {fontSize: 24, fontWeight: '700', color: '#000'},
+  body: {fontSize: 14, color: '#000'},
+  form: {gap: 16},
+  loginFields: {width: 310, alignSelf: 'center', marginTop: 77, gap: 20},
+  input: {height: 44, borderWidth: 1, borderColor: '#dbdada', borderRadius: 12, paddingHorizontal: 10, fontSize: 14, textAlign: 'center', color: '#000', backgroundColor: '#fff'},
+  inputWide: {marginBottom: 16},
+  button: {height: 40, borderRadius: 36, backgroundColor: '#808080', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10},
+  buttonText: {fontSize: 14, color: '#fff'},
+  outline: {backgroundColor: '#fff', borderWidth: 1, borderColor: '#dbdada'},
+  outlineText: {color: '#000'},
+  busy: {opacity: 0.6},
+  bottom: {marginTop: 'auto', paddingTop: 24, gap: 16},
+  forgot: {alignItems: 'center', marginBottom: 32},
+  later: {alignItems: 'center'},
+  plain: {fontSize: 14, color: '#000'},
+  account: {marginTop: 'auto', paddingTop: 40, paddingBottom: 4, alignItems: 'center'},
+  accountText: {fontSize: 14, color: '#000'},
+  hint: {fontSize: 12, lineHeight: 16, color: '#737780', marginBottom: 17},
+  avatarWrap: {alignItems: 'center', marginTop: 49},
+  avatarBig: {width: 212, height: 212, borderRadius: 106, backgroundColor: '#d9d9d9', alignItems: 'center', overflow: 'hidden'},
+  avatarHead: {position: 'absolute', top: 70, width: 38, height: 38, borderRadius: 19, backgroundColor: '#fff'},
+  avatarBody: {position: 'absolute', top: 119, width: 112, height: 34, borderRadius: 56, backgroundColor: '#fff'},
+  avatarSmall: {width: 150, height: 150, borderRadius: 75},
+  contactRow: {flexDirection: 'row', gap: 13, marginTop: 22, alignItems: 'flex-start'},
+  contactText: {flex: 1, fontSize: 14, lineHeight: 20, color: '#000'},
+  tags: {flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, paddingVertical: 15},
+  tag: {backgroundColor: '#f2f2f2', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7},
+  selected: {backgroundColor: '#808080'},
+  tagText: {fontSize: 12, color: '#000'},
+  selectedText: {color: '#fff'},
+  error: {color: '#b42318', fontSize: 13, lineHeight: 19, marginTop: 12},
+  notice: {backgroundColor: '#f2f2f2', padding: 12, borderRadius: 10, color: '#000', fontSize: 13, lineHeight: 19, marginTop: 12},
+});
