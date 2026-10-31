@@ -3,10 +3,22 @@ import {View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Keyboar
 import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
 import {Ionicons} from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import {validEmail, validBirthday, formatBirthdayInput} from './validation';
+import {validEmail, validBirthday, formatBirthdayInput, normalizePhone, validPhone} from './validation';
+import {getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signOut, sendEmailVerification, reload, updateProfile} from 'firebase/auth';
+import {initializeApp, getApps, getApp} from 'firebase/app';
 
 
 
+const firebaseConfig = {
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+};
+const firebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
+const auth = getAuth(firebaseApp);
 const topics = ['Тварини', 'Птахи', 'Коти', 'Собаки', 'Коні', 'Їжа та напої', 'Випічка', 'Кулінарія', 'Спорт', 'Американський футбол', 'Бейсбол', 'Баскетбол', 'Риболовля', 'Футбол', 'Теніс', 'Волейбол', 'Зимові види спорту', 'Книги та література', 'Подорожі', 'Кемпінг і походи', 'Активний відпочинок', 'Автомандрівки', 'Наука та інженерія', 'Комп’ютерні науки', 'Інвестиції та трейдинг', 'Технології', 'Рукоділля', 'Танці', 'Малювання', 'Фотографія', 'Музика', 'Стиль'];
 const nextStep = {phone: 'code', email: 'birthday', code: 'birthday', birthday: 'password', password: 'name', name: 'username', username: 'photo', photo: 'contacts', contacts: 'interests', interests: 'done'};
 const errorMessages = {
@@ -44,20 +56,25 @@ function Flow() {
   const [verified, setVerified] = useState(false);
   const lock = useRef(false);
 
-  const fakeLogin = async () => ({ email: data.loginId, emailVerified: true });
-  const fakeRegister = async () => ({ email: data.email });
-  const fakeSaveProfile = async profile => profile;
-  const fakeLogout = async () => {};
-  const fakeResetPassword = async () => {};
-  const fakeSendVerificationEmail = async () => {};
-  const fakeUploadAvatarBlob = async () => {};
-
+  const loginWithFirebase = async () => {
+    const result = await signInWithEmailAndPassword(auth, (data.loginId || '').trim(), data.loginPassword);
+    return result.user;
+  };
+  const registerWithFirebase = async () => {
+    const result = await createUserWithEmailAndPassword(auth, (data.email || '').trim(), data.password);
+    try { await sendEmailVerification(result.user); } catch (e) { /* Email verification can be requested again. */ }
+    return result.user;
+  };
+  const saveProfile = async profile => {
+    if (auth.currentUser && profile.name) await updateProfile(auth.currentUser, {displayName: profile.name});
+    return profile;
+  };
   const run = async action => {
     if (lock.current) return;
     lock.current = true;
     setBusy(true); setError(''); setNotice('');
     try { await action(); }
-    catch (e) { setError(e.message || 'Не вдалося виконати запит. Спробуйте ще раз.'); }
+    catch (e) { setError(errorMessages[e.code] || e.message || 'Не вдалося виконати запит. Спробуйте ще раз.'); }
     finally { lock.current = false; setBusy(false); }
   };
 
@@ -74,46 +91,48 @@ function Flow() {
 
   const handleLogin = () => run(async () => {
     if (!validEmail(data.loginId || '') || !data.loginPassword) throw new Error('Введіть пошту та пароль.');
-    const user = await fakeLogin();
+    const user = await loginWithFirebase();
     setData(d => ({...d, password: '', loginPassword: ''}));
     setVerified(user.emailVerified);
     go('done');
   });
 
   const finish = (list = selected) => run(async () => {
-    await fakeSaveProfile({name: data.name, username: data.username, interests: list});
-    setVerified(true);
+    await saveProfile({name: data.name, username: data.username, interests: list});
+    setVerified(Boolean(auth.currentUser?.emailVerified));
     go('done');
   });
 
   const handleLogout = () => run(async () => {
-    await fakeLogout();
+    await signOut(auth);
     setData({}); setSelected([]); setPhoto(null); setVerified(false);
     login();
   });
 
   const sendReset = () => run(async () => {
     if (!validEmail(data.resetEmail || '')) throw new Error('Введіть коректну електронну пошту.');
-    await fakeResetPassword();
-    setNotice('Демо: посилання для відновлення не надсилається.');
+    await sendPasswordResetEmail(auth, (data.resetEmail || '').trim());
+    setNotice('Якщо адресу зареєстровано, перевірте пошту для відновлення пароля.');
   });
 
   const advance = () => {
     let message = '';
     if (step === 'email' && !validEmail(data.email || '')) message = 'Введіть коректну електронну пошту.';
+    if (step === 'phone') message = 'SMS-підтвердження ще не налаштовано у Firebase. Оберіть реєстрацію через email.';
+    if (step === 'code') message = 'SMS-підтвердження поки недоступне. Скористайтеся email.';
     if (step === 'birthday' && !validBirthday(data.birthday || '')) message = 'Формат РРРР-ММ-ДД. Вам має бути щонайменше 13 років.';
-    if (step === 'password' && (data.password || '').length < 6) message = 'Пароль має містити щонайменше 6 символів.';
+    if (step === 'password' && ((data.password || '').length < 6 || data.password !== data.confirmPassword)) message = 'Пароль має містити 6+ символів, обидва поля повинні збігатися.';
     if (step === 'name' && !(data.name || '').trim()) message = 'Введіть ваше імʼя.';
     if (step === 'username' && !/^[a-zA-Z0-9._]{3,30}$/.test(data.username || '')) message = 'Від 3 до 30 символів: латинські літери, цифри, крапки або підкреслення.';
     if (message) { setError(message); return; }
 
     if (step === 'password') {
       run(async () => {
-        await fakeRegister();
+        await registerWithFirebase();
         setData(d => ({...d, password: ''}));
         go('name');
         setHistory([]);
-        setNotice('Акаунт створено (демо).');
+        setNotice('Акаунт створено. Перевірте лист підтвердження email.');
       });
       return;
     }
@@ -129,7 +148,7 @@ function Flow() {
   };
 
   const uploadPhoto = () => run(async () => {
-    await fakeUploadAvatarBlob();
+    setNotice('Фото вибрано локально. Завантаження до Firebase Storage ще не налаштовано.');
     go('contacts');
   });
 
@@ -313,8 +332,14 @@ function Flow() {
             <Text style={[s.hint, {textAlign: 'center'}]}>{verified ? 'Пошту підтверджено.' : 'Перевірте пошту та підтвердьте адресу.'}</Text>
             <View style={s.form}>
               {!verified && <>
-                {button('Надіслати лист ще раз', () => run(async () => { await fakeSendVerificationEmail(); setNotice('Демо: лист не надсилається.'); }), true)}
-                {button('Я підтвердив(-ла) пошту', () => setNotice('Демо: перевірка пошти ще не підключена.'), true)}
+                {button('Надіслати лист ще раз', () => run(async () => { if (auth.currentUser) await sendEmailVerification(auth.currentUser); setNotice('Посилання для підтвердження надіслано.'); }), true)}
+                {button('Я підтвердив(-ла) пошту', () => run(async () => {
+                  const user = auth.currentUser;
+                  if (!user) throw new Error('Спочатку увійдіть.');
+                  await reload(user);
+                  setVerified(user.emailVerified);
+                  if (!user.emailVerified) setNotice('Пошту ще не підтверджено. Відкрийте останній лист і спробуйте ще раз.');
+                }), true)}
               </>}
               {button('Вийти', handleLogout)}
             </View>
@@ -382,7 +407,7 @@ const s = StyleSheet.create({
 
 function canAdvance(step, data) {
   switch (step) {
-    case 'phone': return /^\+?[0-9 ()-]{9,18}$/.test(data.phone || '');
+    case 'phone': return validPhone(data.phone || '');
     case 'code': return /^\d{4,6}$/.test(data.code || '');
     case 'email': return validEmail(data.email || '');
     case 'birthday': return validBirthday(data.birthday || '');
