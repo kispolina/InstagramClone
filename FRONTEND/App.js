@@ -37,12 +37,19 @@ function Flow() {
     setNotice('Демо-режим: справжній вхід не виконується.');
     go('done');
   };
-  const finish = () => {
+  const finish = (interests = selected) => {
+    setSelected(interests);
     setNotice('Демо-режим: дані профілю не зберігаються.');
     go('done');
   };
   const handleLogout = () => { setData({}); setSelected([]); setPhoto(null); login(); };
-  const sendReset = () => setNotice('Це макет. Лист для відновлення не надсилається.');
+  const sendReset = () => {
+    if (!validEmail(data.resetEmail || '')) {
+      setError('Введіть коректну електронну пошту.');
+      return;
+    }
+    setNotice('Це макет. Лист для відновлення не надсилається.');
+  };
 
   const go = next => { setHistory(h => [...h, step]); setStep(next); setError(''); setNotice(''); };
   const login = () => { setStep('login'); setHistory([]); setError(''); setNotice(''); };
@@ -60,7 +67,7 @@ function Flow() {
     if (step === 'phone') { go('code'); setNotice('Демо: SMS не надсилається. Введіть будь-який код із 4–6 цифр.'); return; }
     if (step === 'email' && !validEmail(data.email || '')) message = 'Введіть коректну електронну пошту.';
     if (step === 'birthday' && !validBirthday(data.birthday || '')) message = 'Формат РРРР-ММ-ДД. Вам має бути щонайменше 13 років.';
-    if (step === 'password' && (data.password || '').length < 6) message = 'Пароль має містити щонайменше 6 символів.';
+    if (step === 'password' && ((data.password || '').length < 6 || data.password !== data.confirmPassword)) message = 'Пароль має містити щонайменше 6 символів, а обидва поля мають збігатися.';
     if (step === 'name' && !(data.name || '').trim()) message = 'Введіть ваше імʼя.';
     if (step === 'username' && !/^[a-zA-Z0-9._]{3,30}$/.test(data.username || '')) message = 'Від 3 до 30 символів: латинські літери, цифри, крапки або підкреслення.';
     if (message) { setError(message); return; }
@@ -280,16 +287,16 @@ const s = StyleSheet.create({
   top: {height: 42, paddingTop: 8, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
   content: {flexGrow: 1, paddingHorizontal: 20, paddingBottom: 16},
   logo: {width: 125, height: 93, alignSelf: 'center'},
-  loginGreeting: {marginTop: 14, color: '#fff', fontWeight: '800', fontSize: 24},
-  loginCaption: {marginTop: 6, color: '#fff', fontSize: 13},
+  loginGreeting: {marginTop: 18, color: '#fff', fontWeight: '800', fontSize: 25, letterSpacing: -0.4},
+  loginCaption: {marginTop: 7, color: '#F4EDFF', fontSize: 13, lineHeight: 19},
   info: {gap: 10, marginBottom: 28},
-  heading: {fontSize: 23, fontWeight: '800', color: '#fff'},
+  heading: {fontSize: 24, fontWeight: '800', color: '#fff', letterSpacing: -0.3},
   body: {fontSize: 13, lineHeight: 18, color: '#fff'},
   form: {gap: 14},
-  loginFields: {width: '100%', alignSelf: 'center', marginTop: 35, gap: 12},
-  input: {height: 49, borderWidth: 0, borderRadius: 7, paddingHorizontal: 14, fontSize: 14, color: '#222', backgroundColor: '#fff'},
+  loginFields: {width: '100%', alignSelf: 'center', marginTop: 32, gap: 12},
+  input: {height: 50, borderWidth: 0, borderRadius: 7, paddingHorizontal: 15, fontSize: 14, color: '#252525', backgroundColor: '#fff'},
   inputWide: {marginBottom: 5},
-  button: {height: 48, borderRadius: 30, backgroundColor: LIME, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10, marginTop: 4},
+  button: {height: 50, borderRadius: 26, backgroundColor: LIME, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, marginTop: 4},
   buttonText: {fontSize: 15, fontWeight: '700', color: '#181818'},
   outline: {backgroundColor: 'transparent', borderWidth: 0},
   outlineText: {color: '#fff', fontWeight: '500'},
@@ -304,7 +311,7 @@ const s = StyleSheet.create({
   helperAccent: {color: LIME, fontWeight: '700'},
   account: {marginTop: 'auto', paddingTop: 40, paddingBottom: 4, alignItems: 'center'},
   accountText: {fontSize: 13, color: '#fff'},
-  hint: {fontSize: 12, lineHeight: 16, color: '#EEE0FF', marginBottom: 17},
+  hint: {fontSize: 12, lineHeight: 18, color: '#EEE0FF', marginBottom: 18},
   avatarWrap: {alignItems: 'center', marginTop: 40},
   avatarBig: {width: 190, height: 190, borderRadius: 95, backgroundColor: '#d9d9d9', alignItems: 'center', justifyContent: 'center', overflow: 'hidden'},
   avatarHead: {position: 'absolute', top: 55, width: 38, height: 38, borderRadius: 19, backgroundColor: '#aaa'},

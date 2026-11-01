@@ -6,6 +6,12 @@ function normalizePhone(value) {
 }
 function validPhone(value) { return /^\+[1-9]\d{7,14}$/.test(normalizePhone(value)); }
 function validEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()); }
+function formatBirthdayInput(value) {
+  const digits = value.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 4) return digits;
+  if (digits.length <= 6) return digits.slice(0, 4) + '-' + digits.slice(4);
+  return digits.slice(0, 4) + '-' + digits.slice(4, 6) + '-' + digits.slice(6);
+}
 function validBirthday(value, now = new Date()) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const [y,m,d] = value.split('-').map(Number);
@@ -15,4 +21,4 @@ function validBirthday(value, now = new Date()) {
   if(now.getMonth()<m-1 || (now.getMonth()===m-1 && now.getDate()<d)) age--;
   return age>=13 && age<=120;
 }
-module.exports={normalizePhone,validPhone,validEmail,validBirthday};
+module.exports={normalizePhone,validPhone,validEmail,formatBirthdayInput,validBirthday};
