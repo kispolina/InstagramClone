@@ -3,6 +3,7 @@ import {View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, useWindowDi
 import {Ionicons, MaterialCommunityIcons} from '@expo/vector-icons';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {colors} from '../theme';
+import ConnectedAccount from './ConnectedAccount';
 
 
 const STORIES = [
@@ -28,14 +29,16 @@ const TABS = [
 export default function Home({profile, onLogout}) {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState('home');
+  const [connectedPage, setConnectedPage] = useState(null);
   return (
     <View style={h.root}>
       {tab === 'home' && <Feed profile={profile} />}
-      {tab === 'profile' && <Profile profile={profile} onLogout={onLogout} />}
+      {tab === 'profile' && <Profile profile={profile} onLogout={onLogout} onConnected={() => setConnectedPage('profile')} />}
       {tab !== 'home' && tab !== 'profile' && (
         <View style={[h.soon, {paddingTop: insets.top}]}><Text style={h.soonText}>Цей розділ ще в розробці</Text></View>
       )}
-      <TabBar tab={tab} onChange={setTab} photo={profile.photo} />
+      <TabBar tab={tab} onChange={next => next === 'add' ? setConnectedPage('compose') : setTab(next)} photo={profile.photo} />
+      {connectedPage && <ConnectedAccount initialPage={connectedPage} onClose={() => setConnectedPage(null)} />}
     </View>
   );
 }
@@ -191,12 +194,13 @@ function TabBar({tab, onChange, photo}) {
   );
 }
 
-function Profile({profile, onLogout}) {
+function Profile({profile, onLogout, onConnected}) {
   const insets = useSafeAreaInsets();
   return (
     <View style={[h.profile, {paddingTop: insets.top + 48}]}>
       <Avatar size={120} tone="#7C5CFF" photo={profile.photo} />
       <Text style={h.profileName}>@{profile.nickname}</Text>
+      <TouchableOpacity accessibilityRole="button" onPress={onConnected} style={h.logout}><Text style={h.logoutText}>Профіль і дописи Firebase</Text></TouchableOpacity>
       <TouchableOpacity accessibilityRole="button" onPress={onLogout} style={h.logout}><Text style={h.logoutText}>Вийти</Text></TouchableOpacity>
     </View>
   );
