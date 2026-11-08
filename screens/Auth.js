@@ -7,10 +7,10 @@ import {colors} from '../theme';
 import {Logo, Info, Button, TextLink, Field, PhoneField, Tabs} from '../ui';
 import DateWheel from '../DateWheel';
 import {validEmail, validUaDigits, validBirthday} from '../validation';
-
+import { login, register } from "../services/account";
 
 const PASSWORD_MIN = 8;
-const CONTACT_TABS = [{key: 'email', label: 'Email'}, {key: 'phone', label: 'Номер телефону'}];
+const CONTACT_TABS = [{key: 'email', label: 'Email'}];
 const BACK = {forgot: 'login', code: null, newPassword: 'code', birthday: 'code', nickname: 'birthday', photo: 'nickname'};
 const pad = n => String(n).padStart(2, '0');
 
@@ -36,13 +36,13 @@ export default function Auth({onDone}) {
   const [step, setStep] = useState('login');
   const [tab, setTab] = useState('email');
   const [f, setF] = useState({email: '', phone: '', password: '', repeat: ''});
-  const [flow, setFlow] = useState('signup');     // signup | reset
-  const [resetBy, setResetBy] = useState('phone'); // phone | email
+  const [flow, setFlow] = useState('signup');    
+  const [resetBy, setResetBy] = useState('phone'); 
   const [sheet, setSheet] = useState(false);
   const [notice, setNotice] = useState('');
   const [dob, setDob] = useState({d: 3, m: 7, y: 2002});
   const [nickname, setNickname] = useState('');
-
+  const [displayName, setDisplayName] = useState('');
   const set = (key, value) => { setF(o => ({...o, [key]: value})); setNotice(''); };
   const go = next => { setStep(next); setNotice(''); };
   const back = () => go(step === 'code' ? (flow === 'reset' ? 'forgot' : 'register') : BACK[step]);
@@ -61,7 +61,21 @@ export default function Auth({onDone}) {
     return (
       <>
         <Screen footer={<>
-          <Button label="Увійти" disabled={!ok} onPress={() => onDone({nickname: nameFromContact(), photo: null})} />
+          <Button
+            label="Увійти"
+            disabled={!ok}
+            onPress={async () => {
+            try {
+              const user = await login(
+              f.email,
+              f.password
+            );
+            onDone(user);
+            } catch (error) {
+              setNotice(error.message);
+            }
+            }}
+          />
           <Text style={a.switchText}>У мене немає акаунту <Text style={a.switchLink} onPress={() => go('register')}>Зареєструватися</Text></Text>
         </>}>
           <View style={{gap: 12}}>
@@ -161,14 +175,36 @@ export default function Auth({onDone}) {
     const typed = nickname.length > 0;
     const valid = /^[a-zA-Z0-9._]{3,30}$/.test(nickname);
     return (
-      <Screen onBack={back} footer={<Button label="Далі" disabled={!valid} onPress={() => go('photo')} />}>
+      <Screen onBack={back} footer={<Button label="Далі" disabled={!valid} onPress={() => { setDisplayName(nickname); go('photo'); }} />}>
         <Info title="Придумайте нікнейм" text="Ти тут. І це круто" gap={12} large />
         <Field value={nickname} onChangeText={setNickname} placeholder="Нікнейм" error={typed && !valid} helper={typed && !valid ? 'Від 3 до 30 символів: латинські літери, цифри, крапки або підкреслення' : undefined} maxLength={30} />
       </Screen>
     );
   }
 
-  return <PhotoStep onBack={back} onDone={photo => onDone({nickname, photo})} />;
+  return (
+    <PhotoStep
+      onBack={back}
+      onDone={async photo => {
+        try {
+          const user = await register(
+            f.email,
+            nickname,
+            displayName,
+            f.password
+          );
+
+          onDone({
+            ...user,
+            photo,
+          });
+
+        } catch (error) {
+          setNotice(error.message);
+        }
+      }}
+    />
+  );
 }
 
 function RecoverSheet({visible, onClose, onPick}) {
@@ -234,7 +270,11 @@ function PhotoStep({onBack, onDone}) {
   };
   return (
     <Screen onBack={onBack} footer={<>
-      <Button label="Далі" disabled={!photo} onPress={() => onDone(photo)} />
+      <Button
+        label="Далі"
+        disabled={!photo}
+        onPress={() => onDone(photo)}
+      />
       <TextLink onPress={() => onDone(null)}>Пізніше</TextLink>
     </>}>
       <Info title="Додайте картинку профілю" text={'Додайте картинку профілю.\nВи можете змінити це будь-коли'} />
