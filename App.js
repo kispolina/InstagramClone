@@ -4,10 +4,8 @@ import {SafeAreaProvider} from 'react-native-safe-area-context';
 import Auth from './screens/Auth';
 import Home from './screens/Home';
 import {colors} from './theme';
-<<<<<<< Updated upstream
-=======
 import {logout} from './services/account';
->>>>>>> Stashed changes
+
 
 export default function App() {
   const [profile, setProfile] = useState(null);
@@ -18,11 +16,7 @@ export default function App() {
         <StatusBar barStyle={profile ? 'dark-content' : 'light-content'} />
         <View style={{flex: 1, width: '100%', maxWidth: 430, alignSelf: 'center', backgroundColor: background}}>
           {profile
-<<<<<<< Updated upstream
-            ? <Home profile={profile} onLogout={() => setProfile(null)} />
-=======
             ? <Home profile={profile} onLogout={() => { logout(); setProfile(null); }} />
->>>>>>> Stashed changes
             : <Auth onDone={setProfile} />}
         </View>
       </View>

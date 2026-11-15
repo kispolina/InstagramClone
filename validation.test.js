@@ -1,10 +1,15 @@
-const {test} = require('node:test');
+const { test } = require('node:test');
 const assert = require('node:assert/strict');
-<<<<<<< Updated upstream
-const {normalizePhone, validPhone, validUaDigits, validEmail, validBirthday} = require('./validation');
-=======
-const {normalizePhone, validPhone, validUaDigits, validEmail, validBirthday, validPassword, validCode} = require('./validation');
->>>>>>> Stashed changes
+
+const {
+  normalizePhone,
+  validPhone,
+  validUaDigits,
+  validEmail,
+  validBirthday,
+  validPassword,
+  validCode,
+} = require('./validation');
 
 test('Ukrainian local and international phone numbers', () => {
   assert.equal(normalizePhone('067 123-45-67'), '+380671234567');
@@ -35,8 +40,6 @@ test('birthday handles leap dates and exact age boundary', () => {
   assert.ok(validBirthday('2000-02-29', now));
   assert.equal(validBirthday('2099-01-01', now), false);
 });
-<<<<<<< Updated upstream
-=======
 
 test('password follows backend rules', () => {
   assert.ok(validPassword('Passw0rdX'));
@@ -51,4 +54,3 @@ test('confirmation code is exactly 6 digits', () => {
   assert.equal(validCode('1234'), false);
   assert.equal(validCode('12345a'), false);
 });
->>>>>>> Stashed changes

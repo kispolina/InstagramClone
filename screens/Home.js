@@ -3,10 +3,6 @@ import {View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, useWindowDi
 import {Ionicons, MaterialCommunityIcons} from '@expo/vector-icons';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {colors} from '../theme';
-<<<<<<< Updated upstream
-import ConnectedAccount from './ConnectedAccount';
-=======
->>>>>>> Stashed changes
 
 
 const STORIES = [
@@ -32,18 +28,6 @@ const TABS = [
 export default function Home({profile, onLogout}) {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState('home');
-<<<<<<< Updated upstream
-  const [connectedPage, setConnectedPage] = useState(null);
-  return (
-    <View style={h.root}>
-      {tab === 'home' && <Feed profile={profile} />}
-      {tab === 'profile' && <Profile profile={profile} onLogout={onLogout} onConnected={() => setConnectedPage('profile')} />}
-      {tab !== 'home' && tab !== 'profile' && (
-        <View style={[h.soon, {paddingTop: insets.top}]}><Text style={h.soonText}>Цей розділ ще в розробці</Text></View>
-      )}
-      <TabBar tab={tab} onChange={next => next === 'add' ? setConnectedPage('compose') : setTab(next)} photo={profile.photo} />
-      {connectedPage && <ConnectedAccount initialPage={connectedPage} onClose={() => setConnectedPage(null)} />}
-=======
   return (
     <View style={h.root}>
       {tab === 'home' && <Feed profile={profile} />}
@@ -52,7 +36,6 @@ export default function Home({profile, onLogout}) {
         <View style={[h.soon, {paddingTop: insets.top}]}><Text style={h.soonText}>Цей розділ ще в розробці</Text></View>
       )}
       <TabBar tab={tab} onChange={setTab} photo={profile.photo} />
->>>>>>> Stashed changes
     </View>
   );
 }
@@ -208,20 +191,12 @@ function TabBar({tab, onChange, photo}) {
   );
 }
 
-<<<<<<< Updated upstream
-function Profile({profile, onLogout, onConnected}) {
-=======
 function Profile({profile, onLogout}) {
->>>>>>> Stashed changes
   const insets = useSafeAreaInsets();
   return (
     <View style={[h.profile, {paddingTop: insets.top + 48}]}>
       <Avatar size={120} tone="#7C5CFF" photo={profile.photo} />
       <Text style={h.profileName}>@{profile.nickname}</Text>
-<<<<<<< Updated upstream
-      <TouchableOpacity accessibilityRole="button" onPress={onConnected} style={h.logout}><Text style={h.logoutText}>Профіль і дописи Firebase</Text></TouchableOpacity>
-=======
->>>>>>> Stashed changes
       <TouchableOpacity accessibilityRole="button" onPress={onLogout} style={h.logout}><Text style={h.logoutText}>Вийти</Text></TouchableOpacity>
     </View>
   );

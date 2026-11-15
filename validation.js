@@ -4,24 +4,66 @@ function normalizePhone(value) {
   if (/^380\d{9}$/.test(compact)) return '+' + compact;
   return compact;
 }
-function validPhone(value) { return /^\+[1-9]\d{7,14}$/.test(normalizePhone(value)); }
 
-function validUaDigits(value) { return /^\d{9}$/.test(value); }
-function validEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()); }
+function validPhone(value) {
+  return /^\+[1-9]\d{7,14}$/.test(normalizePhone(value));
+}
+
+function validUaDigits(value) {
+  return /^\d{9}$/.test(value);
+}
+
+function validEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
 function validBirthday(value, now = new Date()) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const [y,m,d] = value.split('-').map(Number);
-  const date = new Date(y,m-1,d);
-  if (date.getFullYear()!==y || date.getMonth()!==m-1 || date.getDate()!==d || date>now) return false;
-  let age=now.getFullYear()-y;
-  if(now.getMonth()<m-1 || (now.getMonth()===m-1 && now.getDate()<d)) age--;
-  return age>=13 && age<=120;
-}
-<<<<<<< Updated upstream
-module.exports={normalizePhone,validPhone,validUaDigits,validEmail,validBirthday};
-=======
 
-function validPassword(value) { return value.length >= 8 && value.length <= 100 && /[A-Z]/.test(value) && /[a-z]/.test(value) && /\d/.test(value); }
-function validCode(value) { return /^\d{6}$/.test(value); }
-module.exports={normalizePhone,validPhone,validUaDigits,validEmail,validBirthday,validPassword,validCode};
->>>>>>> Stashed changes
+  const [y, m, d] = value.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+
+  if (
+    date.getFullYear() !== y ||
+    date.getMonth() !== m - 1 ||
+    date.getDate() !== d ||
+    date > now
+  ) {
+    return false;
+  }
+
+  let age = now.getFullYear() - y;
+
+  if (
+    now.getMonth() < m - 1 ||
+    (now.getMonth() === m - 1 && now.getDate() < d)
+  ) {
+    age--;
+  }
+
+  return age >= 13 && age <= 120;
+}
+
+function validPassword(value) {
+  return (
+    value.length >= 8 &&
+    value.length <= 100 &&
+    /[A-Z]/.test(value) &&
+    /[a-z]/.test(value) &&
+    /\d/.test(value)
+  );
+}
+
+function validCode(value) {
+  return /^\d{6}$/.test(value);
+}
+
+module.exports = {
+  normalizePhone,
+  validPhone,
+  validUaDigits,
+  validEmail,
+  validBirthday,
+  validPassword,
+  validCode,
+};

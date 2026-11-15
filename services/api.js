@@ -1,10 +1,3 @@
-<<<<<<< Updated upstream
-const API_URL =
-  "https://socialnetwork-api-staging.onrender.com";
-
-let accessToken = null;
-let refreshToken = null;
-=======
 // Клієнт HTTP API YUNO (https://github.com/oket23/Social-Network-Backend, гілка dev).
 // Токени живуть лише в пам'яті. У консоль не пишемо ні токенів, ні тіл відповідей.
 
@@ -23,7 +16,7 @@ export class ApiError extends Error {
     this.fields = fields; // {Поле: [повідомлення]} з відповіді валідації
   }
 }
->>>>>>> Stashed changes
+
 
 export function saveTokens(auth) {
   accessToken = auth.accessToken;
@@ -35,40 +28,7 @@ export function clearTokens() {
   refreshToken = null;
 }
 
-<<<<<<< Updated upstream
-export async function api(path, options = {}) {
-  const response = await fetch(
-    `${API_URL}${path}`,
-    {
-      ...options,
-      headers: {
-        ...(options.headers || {}),
-        ...(accessToken
-          ? {
-              Authorization: `Bearer ${accessToken}`,
-            }
-          : {}),
-      },
-    }
-  );
 
-  const result = await response.json();
-	console.log("STATUS:", response.status);
-	console.log("RESULT:", result);
-
-  if (!response.ok) {
-	  console.log("ERROR RESPONSE:", result);
-		
-	  throw new Error(
-	    result.message ||
-	    JSON.stringify(result.errors) ||
-	    "Помилка сервера"
-	  );
-	}
-
-  return result;
-}
-=======
 export const hasSession = () => !!refreshToken;
 export const getRefreshToken = () => refreshToken;
 
@@ -126,4 +86,3 @@ export async function api(path, options = {}) {
   if (res.status === 401 && options.auth !== false && await refresh()) res = await send(path, options);
   return parse(res);
 }
->>>>>>> Stashed changes
