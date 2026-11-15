@@ -17,4 +17,11 @@ function validBirthday(value, now = new Date()) {
   if(now.getMonth()<m-1 || (now.getMonth()===m-1 && now.getDate()<d)) age--;
   return age>=13 && age<=120;
 }
+<<<<<<< Updated upstream
 module.exports={normalizePhone,validPhone,validUaDigits,validEmail,validBirthday};
+=======
+
+function validPassword(value) { return value.length >= 8 && value.length <= 100 && /[A-Z]/.test(value) && /[a-z]/.test(value) && /\d/.test(value); }
+function validCode(value) { return /^\d{6}$/.test(value); }
+module.exports={normalizePhone,validPhone,validUaDigits,validEmail,validBirthday,validPassword,validCode};
+>>>>>>> Stashed changes
