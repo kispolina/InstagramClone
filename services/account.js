@@ -1,4 +1,6 @@
+import {Platform} from 'react-native';
 import {api, saveTokens, clearTokens, getRefreshToken} from './api';
+
 
 // Тимчасовий нікнейм: бекенд вимагає username під час реєстрації, а в макеті
 // нікнейм обирається вже після коду. Справжній зберігаємо через updateProfile.
@@ -8,7 +10,7 @@ const tempUsername = () => TEMP_PREFIX + Math.random().toString(36).slice(2, 12)
 
 async function authenticate(path, body) {
   const res = await api(path, {method: 'POST', body, auth: false});
-  saveTokens(res.data);
+  await saveTokens(res.data);
   return res.data.user;
 }
 
@@ -43,13 +45,51 @@ export async function loadProfile() {
   return (await api('/users/me')).data;
 }
 
-export async function loadFeed() {
-  return (await api('/feed')).data;
+// { items: Post[], nextCursor: string | null }
+export async function loadFeed(cursor = null, limit = 10) {
+  const params = new URLSearchParams();
+  if (cursor) params.append('cursor', cursor);
+  params.append('limit', String(limit));
+  return (await api(`/feed?${params.toString()}`)).data;
 }
 
+// ПРИПУЩЕННЯ: ендпоінт одного допису — GET /posts/{id}. Якщо шлях інший, змініть лише цей рядок.
+export async function getPost(id) {
+  return (await api(`/posts/${encodeURIComponent(id)}`)).data;
+}
+
+// ПРИПУЩЕННЯ: створення допису — POST /posts, multipart/form-data з полями caption і media (файл
+// повторюється для кожного фото/відео). Якщо в Scalar поля чи шлях інші, змініть лише цю функцію.
+export async function createPost(caption, media) {
+  const form = new FormData();
+  if (caption && caption.trim()) form.append('caption', caption.trim());
+  for (let i = 0; i < media.length; i++) {
+    const item = media[i];
+    const video = item.type === 'video';
+    const name = item.fileName || `media-${i + 1}.${video ? 'mp4' : 'jpg'}`;
+    const type = item.mimeType || (video ? 'video/mp4' : 'image/jpeg');
+    if (Platform.OS === 'web') {
+      const blob = item.file ?? (await (await fetch(item.uri)).blob());
+      form.append('media', blob, name);
+    } else {
+      form.append('media', {uri: item.uri, name, type});
+    }
+  }
+  // Відео вантажиться довше за звичайний запит
+  return (await api('/posts', {method: 'POST', form, timeoutMs: 180000})).data;
+}
+
+// Спершу просимо сервер анулювати refresh-токен (з короткою очікуваною відповіддю, щоб без мережі
+// вихід не «висів»), потім у будь-якому разі чистимо сесію локально.
 export async function logout() {
   const refreshToken = getRefreshToken();
-  clearTokens();
-  if (!refreshToken) return;
-  try { await api('/auth/logout', {method: 'POST', body: {refreshToken}, auth: false}); } catch { /* вихід локально вже виконано */ }
+  if (refreshToken) {
+    try {
+      await Promise.race([
+        api('/auth/logout', {method: 'POST', body: {refreshToken}}),
+        new Promise(resolve => setTimeout(resolve, 5000)),
+      ]);
+    } catch { /* вихід локально виконається нижче */ }
+  }
+  await clearTokens();
 }
