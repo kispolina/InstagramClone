@@ -4,12 +4,14 @@ import {Ionicons, MaterialCommunityIcons} from '@expo/vector-icons';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {colors} from '../theme';
 import {loadFeed} from '../services/account';
-import {mergeById, timeAgo} from '../helpers';
+import {mergeById, timeAgo, toProfile} from '../helpers';
+import ProfileScreen from './ProfileScreen';
 import Avatar from '../components/Avatar';
 import PostMedia from '../components/PostMedia';
 import PostDetails from './PostDetails';
 import CreatePost from './CreatePost';
 import CreateSheet from '../components/CreateSheet';
+
 
 const PAGE_SIZE = 10;
 const STORIES = [
@@ -26,8 +28,10 @@ const TABS = [
   {key: 'search', icon: 'search-outline', lib: Ionicons, label: 'Пошук'},
 ];
 
-export default function Home({profile, onLogout}) {
+export default function Home({profile: initialProfile, onLogout}) {
   const insets = useSafeAreaInsets();
+  const updateProfile = useCallback(user => setProfile(toProfile(user)), []);
+  const [profile, setProfile] = useState(initialProfile);
   const [tab, setTab] = useState('home');
   const [openPost, setOpenPost] = useState(null);
   const [sheet, setSheet] = useState(false);       // bottom sheet «Створити»
@@ -48,7 +52,7 @@ export default function Home({profile, onLogout}) {
       <View style={{flex: 1, display: tab === 'home' ? 'flex' : 'none'}}>
         <Feed profile={profile} onOpenPost={setOpenPost} version={feedVersion} />
       </View>
-      {tab === 'profile' && <Profile profile={profile} onLogout={onLogout} />}
+      {tab === 'profile' && <ProfileScreen onProfileChange={updateProfile} onLogout={onLogout} />}
       {tab !== 'home' && tab !== 'profile' && (
         <View style={[h.soon, {paddingTop: insets.top}]}><Text style={h.soonText}>Цей розділ ще в розробці</Text></View>
       )}
