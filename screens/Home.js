@@ -1,22 +1,23 @@
-import React, {useState} from 'react';
-import {View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, useWindowDimensions} from 'react-native';
+import React, {useState, useEffect, useRef, useCallback} from 'react';
+import {View, Text, FlatList, TouchableOpacity, Image, StyleSheet, useWindowDimensions, ActivityIndicator, RefreshControl, BackHandler} from 'react-native';
 import {Ionicons, MaterialCommunityIcons} from '@expo/vector-icons';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {colors} from '../theme';
+import {loadFeed} from '../services/account';
+import {mergeById, timeAgo} from '../helpers';
+import Avatar from '../components/Avatar';
+import PostMedia from '../components/PostMedia';
+import PostDetails from './PostDetails';
+import CreatePost from './CreatePost';
+import CreateSheet from '../components/CreateSheet';
 
-
+const PAGE_SIZE = 10;
 const STORIES = [
   {name: 'Your name', tone: '#C9B8FF', own: true},
   {name: 'name', tone: '#7C5CFF'},
   {name: 'name_122…', tone: '#FFB38A'},
   {name: 'name', tone: '#FFD84D'},
   {name: 'name', tone: '#9FD8FF'},
-];
-const POSTS = [
-  {id: 1, kind: 'photo', user: 'name', tone: '#EBD3CD', likes: 121, comments: 10, reposts: 0, sends: 2, saves: 3, liked: true, saved: true, sound: true, caption: 'Конспекти перед сесією: рожевий маркер рятує все', time: '1 годину тому'},
-  {id: 2, kind: 'carousel', user: 'name', tone: '#EBD3CD', slides: ['#EBD3CD', '#E3C2BA', '#F1DCD5', '#D9B9B0', '#EFD0C7'], likes: 120, comments: 10, reposts: 0, sends: 2, saves: 2, liked: false, saved: false, time: '1 годину тому'},
-  {id: 3, kind: 'photo', user: 'name', tone: '#4A3B2A', likes: 120, comments: 10, reposts: 5, sends: 2, saves: 2, liked: false, saved: false, caption: 'Запалити улюблену свічку з ароматом хвої та чекати на поїзд', time: '1 годину тому'},
-  {id: 4, kind: 'reels', user: 'name', tone: '#3B2E5A', likes: 120, comments: 10, reposts: 5, sends: 2, saves: 2, liked: false, saved: false, time: '1 годину тому'},
 ];
 const TABS = [
   {key: 'home', icon: 'home-outline', lib: Ionicons, label: 'Головна'},
@@ -28,20 +29,133 @@ const TABS = [
 export default function Home({profile, onLogout}) {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState('home');
+  const [openPost, setOpenPost] = useState(null);
+  const [sheet, setSheet] = useState(false);       // bottom sheet «Створити»
+  const [creating, setCreating] = useState(false); // екран «Новий допис»
+  const [feedVersion, setFeedVersion] = useState(0); // збільшується після публікації -> стрічка оновлюється
+  const choose = key => (key === 'add' ? setSheet(true) : setTab(key));
+
+  // Кнопка «Назад» на Android закриває допис.
+  useEffect(() => {
+    if (!openPost) return undefined;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => { setOpenPost(null); return true; });
+    return () => sub.remove();
+  }, [openPost]);
+
   return (
     <View style={h.root}>
-      {tab === 'home' && <Feed profile={profile} />}
+      {/* Стрічка лишається змонтованою, щоб не губити дані й позицію прокрутки при зміні вкладки */}
+      <View style={{flex: 1, display: tab === 'home' ? 'flex' : 'none'}}>
+        <Feed profile={profile} onOpenPost={setOpenPost} version={feedVersion} />
+      </View>
       {tab === 'profile' && <Profile profile={profile} onLogout={onLogout} />}
       {tab !== 'home' && tab !== 'profile' && (
         <View style={[h.soon, {paddingTop: insets.top}]}><Text style={h.soonText}>Цей розділ ще в розробці</Text></View>
       )}
-      <TabBar tab={tab} onChange={setTab} photo={profile.photo} />
+      <TabBar tab={tab} onChange={choose} photo={profile.photo} />
+      {openPost && <PostDetails post={openPost} onBack={() => setOpenPost(null)} />}
+      <CreateSheet visible={sheet} onClose={() => setSheet(false)} onPost={() => { setSheet(false); setCreating(true); }} />
+      {creating && (
+        <CreatePost
+          onClose={() => setCreating(false)}
+          onPublished={() => { setCreating(false); setTab('home'); setFeedVersion(v => v + 1); }}
+        />
+      )}
     </View>
   );
 }
 
-function Feed({profile}) {
+function Feed({profile, onOpenPost, version}) {
   const insets = useSafeAreaInsets();
+  const [posts, setPosts] = useState([]);
+  const [cursor, setCursor] = useState(null);
+  const [status, setStatus] = useState('loading'); // loading | ready | error
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');        // помилка оновлення, коли стрічка вже показана
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState('');
+  const busy = useRef(false);        // один запит за раз
+  const generation = useRef(0);      // застарілі відповіді (після оновлення) ігноруємо
+
+  const loadFirst = useCallback(async (pull = false) => {
+    const gen = ++generation.current;
+    busy.current = true;
+    setLoadingMore(false);
+    setMoreError('');
+    if (pull) setRefreshing(true); else setStatus('loading');
+    try {
+      const result = await loadFeed(null, PAGE_SIZE);
+      if (gen !== generation.current) return;
+      setPosts(result.items ?? []);
+      setCursor(result.nextCursor ?? null);
+      setNotice('');
+      setStatus('ready');
+    } catch (e) {
+      if (gen !== generation.current) return;
+      if (pull) setNotice(e.message); else { setError(e.message); setStatus('error'); }
+    } finally {
+      if (gen === generation.current) { busy.current = false; setRefreshing(false); }
+    }
+  }, []);
+
+  const loadMore = useCallback(async (force = false) => {
+    if (busy.current || !cursor || (moreError && !force)) return;
+    const gen = generation.current;
+    busy.current = true;
+    setLoadingMore(true);
+    setMoreError('');
+    try {
+      const result = await loadFeed(cursor, PAGE_SIZE);
+      if (gen !== generation.current) return;
+      const items = result.items ?? [];
+      setPosts(prev => mergeById(prev, items));
+      setCursor(items.length ? result.nextCursor ?? null : null); // порожня сторінка = кінець
+    } catch (e) {
+      if (gen !== generation.current) return;
+      setMoreError(e.message);
+    } finally {
+      if (gen === generation.current) { busy.current = false; setLoadingMore(false); }
+    }
+  }, [cursor, moreError]);
+
+  useEffect(() => { loadFirst(); }, [loadFirst]);
+
+  // Після публікації нового допису перезавантажуємо стрічку (version змінюється з Home).
+  const firstVersion = useRef(version);
+  useEffect(() => {
+    if (version !== firstVersion.current) { firstVersion.current = version; loadFirst(); }
+  }, [version, loadFirst]);
+
+  const header = (
+    <View>
+      <FlatList
+        horizontal
+        data={STORIES}
+        keyExtractor={(_, i) => String(i)}
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={h.stories}
+        renderItem={({item}) => <Story story={item} photo={item.own ? profile.photo : null} label={item.own ? 'Your name' : item.name} />}
+      />
+      {!!notice && (
+        <TouchableOpacity accessibilityRole="button" onPress={() => loadFirst(true)} style={h.notice}>
+          <Text style={h.noticeText}>{notice} Натисніть, щоб повторити.</Text>
+        </TouchableOpacity>
+      )}
+      <View style={{height: 16}} />
+    </View>
+  );
+
+  const footer = loadingMore
+    ? <View style={h.footer}><ActivityIndicator color={colors.purple} /></View>
+    : moreError
+      ? (
+        <TouchableOpacity accessibilityRole="button" onPress={() => loadMore(true)} style={h.footer}>
+          <Text style={h.noticeText}>Не вдалося завантажити. Повторити</Text>
+        </TouchableOpacity>
+      )
+      : null;
+
   return (
     <View style={{flex: 1}}>
       <TopGlow height={insets.top + 26} />
@@ -52,18 +166,39 @@ function Feed({profile}) {
           <TouchableOpacity accessibilityLabel="Повідомлення" style={h.circle}><Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.purple} /></TouchableOpacity>
         </View>
       </View>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: 130}}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={h.stories}>
-          {STORIES.map((s, i) => <Story key={i} story={s} photo={s.own ? profile.photo : null} label={s.own ? 'Your name' : s.name} />)}
-        </ScrollView>
-        <View style={h.posts}>
-          {POSTS.map(p => <Post key={p.id} post={p} />)}
+
+      {status === 'loading' && (
+        <View style={h.center}><ActivityIndicator size="large" color={colors.purple} /></View>
+      )}
+
+      {status === 'error' && (
+        <View style={h.center}>
+          <Text style={h.stateText}>{error}</Text>
+          <TouchableOpacity accessibilityRole="button" onPress={() => loadFirst()} style={h.logout}>
+            <Text style={h.logoutText}>Повторити</Text>
+          </TouchableOpacity>
         </View>
-      </ScrollView>
+      )}
+
+      {status === 'ready' && (
+        <FlatList
+          data={posts}
+          keyExtractor={item => item.id}
+          renderItem={({item}) => <Post post={item} onOpen={onOpenPost} />}
+          ListHeaderComponent={header}
+          ListFooterComponent={footer}
+          ListEmptyComponent={<View style={h.empty}><Text style={h.stateText}>Стрічка порожня</Text></View>}
+          ItemSeparatorComponent={() => <View style={{height: 20}} />}
+          onEndReached={() => loadMore()}
+          onEndReachedThreshold={0.6}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadFirst(true)} tintColor={colors.purple} colors={[colors.purple]} />}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{paddingBottom: 130, flexGrow: 1}}
+        />
+      )}
     </View>
   );
 }
-
 
 function TopGlow({height}) {
   const strips = 10;
@@ -72,15 +207,6 @@ function TopGlow({height}) {
       {Array.from({length: strips}, (_, i) => <View key={i} style={{flex: 1, backgroundColor: colors.lime, opacity: 0.55 * (1 - i / strips)}} />)}
     </View>
   );
-}
-
-function Avatar({size, tone, photo, ring = false}) {
-  const inner = ring ? size - 8 : size;
-  const body = photo
-    ? <Image source={{uri: photo}} style={{width: inner, height: inner, borderRadius: inner / 2}} />
-    : <View style={{width: inner, height: inner, borderRadius: inner / 2, backgroundColor: tone, alignItems: 'center', justifyContent: 'center'}}><Ionicons name="person" size={inner * 0.55} color="rgba(255,255,255,0.85)" /></View>;
-  if (!ring) return body;
-  return <View style={{width: size, height: size, borderRadius: size / 2, borderWidth: 2, borderColor: colors.crimson, padding: 2, alignItems: 'center', justifyContent: 'center'}}>{body}</View>;
 }
 
 function Story({story, photo, label}) {
@@ -95,21 +221,21 @@ function Story({story, photo, label}) {
   );
 }
 
-function Post({post}) {
-  const [liked, setLiked] = useState(post.liked);
-  const [saved, setSaved] = useState(post.saved);
-  const [open, setOpen] = useState(false);
-  const [slide, setSlide] = useState(0);
+// Поля допису з API: id, caption, media[{url}], author{id, username, displayName, avatarUrl}, createdAt, updatedAt, isMine.
+// Лічильників лайків/коментарів API не віддає, тому лайк і збереження поки лише локальні, без чисел.
+const Post = React.memo(function Post({post, onOpen}) {
+  const [liked, setLiked] = useState(false);
+  const [saved, setSaved] = useState(false);
   const {width} = useWindowDimensions();
   const mediaWidth = Math.min(width, 430) - 24;
-  const likes = post.likes + (liked && !post.liked ? 1 : 0) - (!liked && post.liked ? 1 : 0);
-  const saves = post.saves + (saved && !post.saved ? 1 : 0) - (!saved && post.saved ? 1 : 0);
-  const reels = post.kind === 'reels';
+  const author = post.author ?? {};
+  const name = author.username || author.displayName || '';
+  const media = post.media ?? [];
+  const open = () => onOpen(post);
 
-  const count = (icon, n, color, onPress, label) => (
+  const action = (icon, color, onPress, label) => (
     <TouchableOpacity accessibilityRole="button" accessibilityLabel={label} onPress={onPress} activeOpacity={onPress ? 0.6 : 1} style={h.action}>
       <Ionicons name={icon} size={24} color={color} />
-      {n > 0 && <Text style={h.actionText}>{n}</Text>}
     </TouchableOpacity>
   );
 
@@ -117,57 +243,36 @@ function Post({post}) {
     <View style={h.post}>
       <View style={h.postHead}>
         <View style={h.postUser}>
-          <Avatar size={36} tone="#7C5CFF" ring={reels} />
-          <Text style={h.userName}>{post.user}</Text>
+          <Avatar size={36} photo={author.avatarUrl} />
+          <Text style={h.userName}>{name}</Text>
         </View>
         <TouchableOpacity accessibilityLabel="Ще" style={h.more}><Ionicons name="ellipsis-vertical" size={20} color={colors.ink} /></TouchableOpacity>
       </View>
 
-      {post.kind === 'carousel' ? (
-        <View>
-          <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} scrollEventThrottle={16} onScroll={e => setSlide(Math.round(e.nativeEvent.contentOffset.x / mediaWidth))} style={h.media}>
-            {post.slides.map((tone, i) => <View key={i} style={[h.slide, {width: mediaWidth, backgroundColor: tone}]} />)}
-          </ScrollView>
-          <View style={h.counter}><Text style={h.counterText}>{slide + 1}/{post.slides.length}</Text></View>
-        </View>
-      ) : (
-        <View style={[h.media, {height: reels ? 380 : 340, backgroundColor: post.tone}]}>
-          {reels && <View style={h.play}><Ionicons name="play" size={28} color={colors.white} /></View>}
-          {post.sound && <>
-            <View style={[h.badge, {left: 12}]}><Ionicons name="person" size={20} color={colors.ink} /></View>
-            <View style={[h.badge, {right: 12}]}><Ionicons name="volume-high" size={20} color={colors.ink} /></View>
-          </>}
-        </View>
-      )}
-
-      {post.kind === 'carousel' && (
-        <View style={h.dots}>
-          {post.slides.map((_, i) => <View key={i} style={i === slide ? h.dotActive : h.dot} />)}
-        </View>
-      )}
+      {media.length > 0 && <PostMedia media={media} width={mediaWidth} height={340} onPress={open} />}
 
       <View style={h.actions}>
         <View style={h.actionsLeft}>
-          {count(liked ? 'heart' : 'heart-outline', likes, liked ? colors.pink : colors.purple, () => setLiked(v => !v), 'Подобається')}
-          {count('chatbubble-ellipses-outline', post.comments, colors.purple, undefined, 'Коментарі')}
-          {count('repeat', post.reposts, colors.purple, undefined, 'Репост')}
-          {count('paper-plane-outline', post.sends, colors.purple, undefined, 'Надіслати')}
+          {action(liked ? 'heart' : 'heart-outline', liked ? colors.pink : colors.purple, () => setLiked(v => !v), 'Подобається')}
+          {action('chatbubble-ellipses-outline', colors.purple, open, 'Відкрити допис')}
+          {action('repeat', colors.purple, undefined, 'Репост')}
+          {action('paper-plane-outline', colors.purple, undefined, 'Надіслати')}
         </View>
-        {count(saved ? 'bookmark' : 'bookmark-outline', saves, saved ? colors.crimson : colors.purple, () => setSaved(v => !v), 'Зберегти')}
+        {action(saved ? 'bookmark' : 'bookmark-outline', saved ? colors.crimson : colors.purple, () => setSaved(v => !v), 'Зберегти')}
       </View>
 
       {!!post.caption && (
         <View style={h.caption}>
-          <Text numberOfLines={open ? undefined : 1} style={h.captionText}>
-            <Text style={h.captionUser}>{post.user} </Text>{post.caption}
+          <Text numberOfLines={2} style={h.captionText}>
+            <Text style={h.captionUser}>{name} </Text>{post.caption}
           </Text>
-          {!open && <TouchableOpacity onPress={() => setOpen(true)} hitSlop={8}><Text style={h.more2}>більше</Text></TouchableOpacity>}
+          {post.caption.length > 80 && <TouchableOpacity onPress={open} hitSlop={8}><Text style={h.more2}>більше</Text></TouchableOpacity>}
         </View>
       )}
-      <Text style={h.time}>{post.time}</Text>
+      <Text style={h.time}>{timeAgo(post.createdAt)}</Text>
     </View>
   );
-}
+});
 
 function TabBar({tab, onChange, photo}) {
   const insets = useSafeAreaInsets();
@@ -184,7 +289,7 @@ function TabBar({tab, onChange, photo}) {
           );
         })}
         <TouchableOpacity accessibilityRole="button" accessibilityLabel="Профіль" onPress={() => onChange('profile')} style={tab === 'profile' ? h.meActive : null}>
-          <Avatar size={36} tone="#7C5CFF" photo={photo} />
+          <Avatar size={36} photo={photo} />
         </TouchableOpacity>
       </View>
     </View>
@@ -195,7 +300,7 @@ function Profile({profile, onLogout}) {
   const insets = useSafeAreaInsets();
   return (
     <View style={[h.profile, {paddingTop: insets.top + 48}]}>
-      <Avatar size={120} tone="#7C5CFF" photo={profile.photo} />
+      <Avatar size={120} photo={profile.photo} />
       <Text style={h.profileName}>@{profile.nickname}</Text>
       <TouchableOpacity accessibilityRole="button" onPress={onLogout} style={h.logout}><Text style={h.logoutText}>Вийти</Text></TouchableOpacity>
     </View>
@@ -213,25 +318,20 @@ const h = StyleSheet.create({
   story: {width: 70, alignItems: 'center', gap: 2},
   storyName: {fontSize: 12, color: colors.ink, width: 70, textAlign: 'center'},
   plus: {position: 'absolute', right: 0, bottom: 0, width: 20, height: 20, borderRadius: 10, backgroundColor: '#1A7BFF', borderWidth: 2, borderColor: colors.white, alignItems: 'center', justifyContent: 'center'},
-  posts: {paddingHorizontal: 12, paddingTop: 16, gap: 20},
-  post: {gap: 8},
+  center: {flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, paddingHorizontal: 24, paddingBottom: 100},
+  empty: {flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60},
+  stateText: {fontSize: 14, color: colors.mutedText, textAlign: 'center'},
+  notice: {marginHorizontal: 20, marginTop: 12},
+  noticeText: {fontSize: 13, color: colors.error, textAlign: 'center'},
+  footer: {paddingVertical: 20, alignItems: 'center'},
+  post: {gap: 8, paddingHorizontal: 12},
   postHead: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
   postUser: {flexDirection: 'row', alignItems: 'center', gap: 12},
   userName: {fontSize: 14, color: colors.ink},
   more: {width: 36, height: 36, alignItems: 'center', justifyContent: 'center'},
-  media: {borderRadius: 8, overflow: 'hidden'},
-  slide: {height: 340},
-  counter: {position: 'absolute', top: 12, right: 12, backgroundColor: colors.pink, borderRadius: 30, paddingHorizontal: 8, paddingVertical: 4},
-  counterText: {fontSize: 14, color: colors.white},
-  play: {position: 'absolute', alignSelf: 'center', top: '42%', width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center'},
-  badge: {position: 'absolute', bottom: 12, backgroundColor: colors.white, borderRadius: 50, padding: 4},
-  dots: {flexDirection: 'row', gap: 4, alignItems: 'center', justifyContent: 'center'},
-  dotActive: {width: 20, height: 6, borderRadius: 30, backgroundColor: '#D9D9D9'},
-  dot: {width: 6, height: 6, borderRadius: 30, backgroundColor: '#595959'},
   actions: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 6},
   actionsLeft: {flexDirection: 'row', alignItems: 'center', gap: 16},
   action: {flexDirection: 'row', alignItems: 'center', gap: 4},
-  actionText: {fontSize: 14, color: colors.ink},
   caption: {flexDirection: 'row', alignItems: 'center', gap: 4},
   captionText: {flex: 1, fontSize: 14, color: '#0A0A0A'},
   captionUser: {fontWeight: '600'},
